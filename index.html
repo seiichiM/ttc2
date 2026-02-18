@@ -1585,67 +1585,237 @@
     };
 
     function parseDXF(text) {
-        const lines = text.split(/\r?\n/);
-        let newShapes = [];
+        const lines = text.replace(/\r\n/g, '\n').split('\n').map(l => l.trim());
+        const newShapes = [];
         let currentEntity = null;
-        let x1, y1, x2, y2, r, cx, cy, textContent, h, w;
-        
-        let i = 0;
-        let section = '';
-        
-        // Simple state machine
-        while(i < lines.length) {
-            const code = lines[i].trim();
-            const value = lines[i+1] ? lines[i+1].trim() : '';
-            i += 2;
-            
-            if (code === '0' && value === 'SECTION') continue;
-            if (code === '2' && value === 'ENTITIES') { section = 'ENTITIES'; continue; }
-            if (code === '0' && value === 'ENDSEC') { section = ''; continue; }
-            
-            if (section === 'ENTITIES') {
-                if (code === '0') {
-                    // Save previous entity
-                    if (currentEntity) newShapes.push(currentEntity);
-                    
-                    if (value === 'LINE') currentEntity = { type: 'LINE', layer: 1, lineType: 'medium' };
-                    else if (value === 'CIRCLE') currentEntity = { type: 'CIRCLE', layer: 1, lineType: 'medium' };
-                    else if (value === 'TEXT' || value === 'MTEXT') currentEntity = { type: 'TEXT', layer: 1, color: '#000' };
-                    else currentEntity = null; // Ignore others
-                } else if (currentEntity) {
-                    const valNum = parseFloat(value);
-                    if (currentEntity.type === 'LINE') {
-                        if (code === '10') currentEntity.x1 = valNum;
-                        if (code === '20') currentEntity.y1 = valNum;
-                        if (code === '11') currentEntity.x2 = valNum;
-                        if (code === '21') currentEntity.y2 = valNum;
-                    } else if (currentEntity.type === 'CIRCLE') {
-                        if (code === '10') currentEntity.cx = valNum;
-                        if (code === '20') currentEntity.cy = valNum;
-                        if (code === '40') currentEntity.r = valNum;
-                    } else if (currentEntity.type === 'TEXT') {
-                        if (code === '10') currentEntity.x = valNum;
-                        if (code === '20') currentEntity.y = valNum;
-                        if (code === '40') currentEntity.size = valNum;
-                        if (code === '1') currentEntity.text = value;
+
+        for (let i = 0; i < lines.length - 1; i += 2) {
+            const code = lines[i];
+            const value = lines[i+1];
+
+            if (code === '0') {
+                // Start of new entity or section
+                if (value === 'LINE') {
+                    currentEntity = { type: 'LINE', layer: 1, lineType: 'medium' };
+                    newShapes.push(currentEntity);
+                } else if (value === 'CIRCLE') {
+                    currentEntity = { type: 'CIRCLE', layer: 1, lineType: 'medium' };
+                    newShapes.push(currentEntity);
+                } else if (value === 'ELLIPSE') {
+                    currentEntity = { type: 'ELLIPSE', layer: 1, lineType: 'medium', cx:0, cy:0, mx:0, my:0, ratio:1, startP:0, endP: 2*Math.PI };
+                    newShapes.push(currentEntity);
+                } else if (value === 'ARC') {
+                    currentEntity = { type: 'ARC', layer: 1, lineType: 'medium', startAngle: 0, endAngle: 2 * Math.PI, counterClockwise: false };
+                    newShapes.push(currentEntity);
+                } else if (value === 'LWPOLYLINE') {
+                    currentEntity = { type: 'LWPOLYLINE', vertices: [], layer: 1, lineType: 'medium' };
+                    newShapes.push(currentEntity);
+                } else if (value === 'TEXT') {
+                    currentEntity = { type: 'TEXT', layer: 1, lineType: 'medium', text: '', size: 10 };
+                    newShapes.push(currentEntity);
+                } else if (value === 'HATCH') {
+                    currentEntity = { type: 'HATCH', layer: 1, lineType: 'medium', fillMode: 0, vertices: [] };
+                    newShapes.push(currentEntity);
+                } else if (value === 'SECTION' || value === 'ENDSEC' || value === 'EOF') {
+                    currentEntity = null; 
+                } else {
+                    currentEntity = null;
+                }
+            } else if (currentEntity) {
+                // Attribute processing
+                if (code === '8') { // Layer
+                    const l = parseInt(value);
+                    if (!isNaN(l) && l >= 1 && l <= 10) currentEntity.layer = l;
+                    else currentEntity.layer = 1;
+                }
+                if (code === '6') { // Linetype
+                    const ltName = value.toUpperCase();
+                    if (ltName === 'THICK_LINE') currentEntity.lineType = 'thick';
+                    else if (ltName === 'THIN') currentEntity.lineType = 'thin';
+                    else if (ltName === 'THIN_DOT') currentEntity.lineType = 'thin-dot';
+                    else if (ltName === 'THIN_DASHDOT') currentEntity.lineType = 'thin-dashdot';
+                    else currentEntity.lineType = 'medium'; // Default/Continuous
+                }
+                if (code === '62') { // Color Index (ACI)
+                    const c = parseInt(value);
+                    const aciMap = {
+                        1: '#ff0000', 2: '#ffff00', 3: '#00ff00', 4: '#00ffff',
+                        5: '#0000ff', 6: '#ff00ff', 7: '#000000', 0: '#000000'
+                    };
+                    if (aciMap[c]) currentEntity.color = aciMap[c];
+                }
+                if (code === '420') { // True Color
+                    const tc = parseInt(value);
+                    const r = (tc >> 16) & 255;
+                    const g = (tc >> 8) & 255;
+                    const b = tc & 255;
+                    const toHex = (n) => {
+                        const h = n.toString(16);
+                        return h.length === 1 ? '0' + h : h;
+                    };
+                    currentEntity.color = `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+                }
+
+                if (currentEntity.type === 'LINE') {
+                    if (code === '10') currentEntity.x1 = parseFloat(value);
+                    if (code === '20') currentEntity.y1 = parseFloat(value);
+                    if (code === '11') currentEntity.x2 = parseFloat(value);
+                    if (code === '21') currentEntity.y2 = parseFloat(value);
+                } else if (currentEntity.type === 'CIRCLE') {
+                    if (code === '10') currentEntity.cx = parseFloat(value);
+                    if (code === '20') currentEntity.cy = parseFloat(value);
+                    if (code === '40') currentEntity.r = parseFloat(value);
+                } else if (currentEntity.type === 'ELLIPSE') {
+                    if (code === '10') currentEntity.cx = parseFloat(value);
+                    if (code === '20') currentEntity.cy = parseFloat(value);
+                    if (code === '11') currentEntity.mx = parseFloat(value);
+                    if (code === '21') currentEntity.my = parseFloat(value);
+                    if (code === '40') currentEntity.ratio = parseFloat(value);
+                    if (code === '41') currentEntity.startP = parseFloat(value);
+                    if (code === '42') currentEntity.endP = parseFloat(value);
+                } else if (currentEntity.type === 'ARC') {
+                    if (code === '10') currentEntity.cx = parseFloat(value);
+                    if (code === '20') currentEntity.cy = parseFloat(value);
+                    if (code === '40') currentEntity.r = parseFloat(value);
+                    if (code === '50') currentEntity.startAngle = parseFloat(value) * Math.PI / 180;
+                    if (code === '51') currentEntity.endAngle = parseFloat(value) * Math.PI / 180;
+                } else if (currentEntity.type === 'LWPOLYLINE') {
+                    if (code === '10') {
+                        currentEntity.vertices.push({ x: parseFloat(value), y: null });
+                    } else if (code === '20') {
+                        const v = currentEntity.vertices[currentEntity.vertices.length - 1];
+                        if (v) v.y = parseFloat(value);
                     }
-                    if (code === '8') currentEntity.layer = 1; // Simplify layer mapping
+                } else if (currentEntity.type === 'TEXT') {
+                     if (code === '10') currentEntity.x = parseFloat(value);
+                     if (code === '20') currentEntity.y = parseFloat(value);
+                     if (code === '40') currentEntity.size = parseFloat(value);
+                     if (code === '1') currentEntity.text = value;
+                } else if (currentEntity.type === 'HATCH') {
+                    if (code === '70') currentEntity.fillMode = parseInt(value); // 1 = Solid
+                    if (code === '72') currentEntity.edgeType = parseInt(value); // 2 = Arc
+                    if (code === '92') currentEntity.pathType = parseInt(value); // 2 = Polyline
+                    
+                    if (code === '10') {
+                        if (currentEntity.pathType === 2) { // Polyline boundary
+                             currentEntity.vertices.push({ x: parseFloat(value), y: null });
+                        } else {
+                             currentEntity.cx = parseFloat(value); // Arc/Circle center
+                        }
+                    }
+                    if (code === '20') {
+                        if (currentEntity.pathType === 2) {
+                             const v = currentEntity.vertices[currentEntity.vertices.length - 1];
+                             if (v) v.y = parseFloat(value);
+                        } else {
+                             currentEntity.cy = parseFloat(value);
+                        }
+                    }
+                    if (code === '40') currentEntity.r = parseFloat(value); 
                 }
             }
         }
-        if (currentEntity) newShapes.push(currentEntity); // Push last
         
-        if (newShapes.length > 0) {
-            shapes = shapes.concat(newShapes);
-            saveHistory();
-            draw();
-            log(`Imported ${newShapes.length} entities.`);
+        // Post-process and Validation
+        const processedShapes = [];
+        newShapes.forEach(s => {
+            const commonProps = { layer: s.layer || 1, lineType: s.lineType || 'medium', color: s.color };
             
-            // Auto-zoom to fit
-            // (Implementation omitted for brevity, just centers view)
-        } else {
-            log('No supported entities found.', 'error');
-        }
+            if (s.type === 'LINE') {
+                if (!isNaN(s.x1) && !isNaN(s.y1) && !isNaN(s.x2) && !isNaN(s.y2)) {
+                    processedShapes.push({ ...s, ...commonProps });
+                }
+            } else if (s.type === 'CIRCLE') {
+                if (!isNaN(s.cx) && !isNaN(s.cy) && !isNaN(s.r)) {
+                    processedShapes.push({ ...s, ...commonProps });
+                }
+            } else if (s.type === 'ELLIPSE') {
+                if (!isNaN(s.cx) && !isNaN(s.cy) && !isNaN(s.mx) && !isNaN(s.my)) {
+                    const rx = Math.sqrt(s.mx*s.mx + s.my*s.my);
+                    const ry = rx * (s.ratio || 1.0);
+                    const rotation = Math.atan2(s.my, s.mx);
+                    
+                    processedShapes.push({
+                        type: 'ELLIPSE',
+                        cx: s.cx, cy: s.cy,
+                        rx: rx, ry: ry,
+                        rotation: rotation,
+                        startAngle: s.startP || 0,
+                        endAngle: s.endP || 2*Math.PI,
+                        counterClockwise: false,
+                        ...commonProps 
+                    });
+                }
+            } else if (s.type === 'ARC') {
+                if (!isNaN(s.cx) && !isNaN(s.cy) && !isNaN(s.r) && !isNaN(s.startAngle) && !isNaN(s.endAngle)) {
+                    processedShapes.push({ ...s, ...commonProps });
+                }
+            } else if (s.type === 'TEXT') {
+                if (!isNaN(s.x) && !isNaN(s.y)) {
+                    processedShapes.push({ ...s, ...commonProps });
+                }
+            } else if (s.type === 'LWPOLYLINE') {
+                for (let k = 0; k < s.vertices.length - 1; k++) {
+                    const v1 = s.vertices[k];
+                    const v2 = s.vertices[k+1];
+                    if (v1.y !== null && v2.y !== null) {
+                        processedShapes.push({
+                            type: 'LINE',
+                            x1: v1.x, y1: v1.y,
+                            x2: v2.x, y2: v2.y,
+                            ...commonProps
+                        });
+                    }
+                }
+                if (s.vertices.length > 2) {
+                    const vLast = s.vertices[s.vertices.length-1];
+                    const vFirst = s.vertices[0];
+                    if (vLast.y !== null && vFirst.y !== null) {
+                         processedShapes.push({
+                            type: 'LINE',
+                            x1: vLast.x, y1: vLast.y,
+                            x2: vFirst.x, y2: vFirst.y,
+                            ...commonProps
+                        });
+                    }
+                }
+            } else if (s.type === 'HATCH') {
+                if (s.fillMode === 1) {
+                    if (s.pathType === 2 && s.vertices.length > 0) {
+                        // Polyline Hatch
+                        const validVerts = s.vertices.filter(v => v.y !== null);
+                        if (validVerts.length > 2) {
+                            processedShapes.push({
+                                type: 'POLYLINE',
+                                vertices: validVerts,
+                                filled: true,
+                                ...commonProps
+                            });
+                        }
+                    } else if (s.edgeType === 2 && !isNaN(s.cx) && !isNaN(s.cy) && !isNaN(s.r)) {
+                        // Circular Hatch
+                        processedShapes.push({
+                            type: 'CIRCLE',
+                            cx: s.cx, cy: s.cy, r: s.r,
+                            filled: true,
+                            ...commonProps
+                        });
+                    }
+                }
+            }
+        });
+
+        // Save current state to history before merging
+        saveHistory();
+        
+        // Merge imported shapes into existing shapes instead of replacing
+        shapes = shapes.concat(processedShapes);
+        
+        selectedShapeIndex = -1;
+        log(`Imported ${processedShapes.length} entities (Merged). Total: ${shapes.length}`);
+        
+        saveHistory(); // Save new state
+        draw();
     }
 
     document.getElementById('btn-export').onclick = () => {
