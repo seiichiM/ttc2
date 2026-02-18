@@ -1,0 +1,1677 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TextToCAD v1.73 (FineLine)</title>
+    <style>
+        body {
+            margin: 0;
+            font-family: sans-serif;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+        header {
+            background: rgba(51, 51, 51, 0.8);
+            color: #fff;
+            padding: 5px 10px; /* Slightly reduced padding */
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        header button {
+            padding: 4px 8px;
+            font-size: 12px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 8px; /* Rounded corners */
+            cursor: pointer;
+        }
+        header button:hover { background: #0056b3; }
+        
+        #main-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+        }
+        #canvas-container {
+            flex: 1;
+            background: #d0d0d0;
+            position: relative;
+            overflow: hidden;
+            cursor: crosshair;
+        }
+        canvas {
+            background: #fff;
+            display: block;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        
+        /* Bottom Pane Layout */
+        #bottom-pane {
+            height: 90px; /* Reduced height */
+            display: flex;
+            border-top: 1px solid #ccc;
+            background: #eee;
+            gap: 5px;
+            padding: 5px;
+        }
+        #log {
+            width: 40%; /* Reduced from 50% */
+            height: 100%;
+            overflow-y: auto; /* Scroll functionality kept */
+            scrollbar-width: none; /* Firefox: Hide scrollbar */
+            background: #222;
+            color: #0f0;
+            font-family: monospace;
+            padding: 5px;
+            /* padding-right: 20px; Removed extra padding as scrollbar is hidden */
+            font-size: 12px;
+            border: 1px solid #999; /* Changed to full border */
+            border-radius: 8px; /* Rounded corners */
+            box-sizing: border-box;
+        }
+        #log::-webkit-scrollbar {
+            display: none; /* Chrome/Safari: Hide scrollbar */
+        }
+        #right-pane {
+            width: 60%; /* Increased from 50% */
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        #info-bar {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 10px;
+            background: #e0e0e0;
+            font-size: 12px;
+            border: 1px solid #ccc;
+            border-radius: 8px; /* Rounded corners */
+        }
+        #command-area {
+            height: auto;
+            padding: 5px 10px;
+            display: flex;
+            gap: 10px;
+            background: #ddd; /* Slightly darker to distinguish */
+            border-radius: 8px; /* Rounded corners */
+            border: 1px solid #ccc;
+            align-items: center;
+        }
+        
+        #command-input {
+            flex: 1;
+            padding: 6px;
+            font-size: 14px;
+            border: 1px solid #ccc;
+            border-radius: 8px; /* Rounded corners */
+        }
+        /* Button override for header is handled above, general buttons below */
+        #command-area button {
+            padding: 6px 12px;
+            font-size: 14px;
+            border-radius: 8px; /* Rounded corners */
+        }
+
+        .cmd-help {
+            font-size: 12px;
+            color: #666;
+            margin-top: 5px;
+        }
+        #properties-panel {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(255, 255, 255, 0.95);
+            border: 1px solid #999;
+            padding: 10px;
+            border-radius: 8px; /* Rounded corners */
+            width: 220px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            display: none;
+            z-index: 1000;
+        }
+        #properties-panel h3 { margin: 0 0 10px 0; font-size: 16px; }
+        .prop-row { margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; font-size: 14px; }
+        .prop-row label { margin-right: 10px; }
+        .prop-row input, .prop-row select { width: 100px; padding: 4px; border-radius: 4px; border: 1px solid #ccc; } /* Inputs in prop panel */
+        
+        /* Coords Display - moved to Info Bar, styling simplified */
+        #coords-display {
+            background: rgba(0, 0, 0, 0.6);
+            color: #fff;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+            user-select: none;
+        }
+        
+        /* Specific style for Move Mode Button - Made smaller */
+        #btn-mode-move, #btn-mode-hatch {
+            padding: 4px 8px !important;
+            font-size: 11px !important;
+            font-weight: bold;
+            border-radius: 6px;
+            border: none;
+            cursor: pointer;
+            background: #007bff;
+            color: white;
+        }
+        #btn-mode-move:hover, #btn-mode-hatch:hover {
+            background: #0056b3;
+        }
+    </style>
+
+    <!-- PWA Settings -->
+    <link rel="manifest" href="manifest.json">
+    <link rel="icon" type="image/png" href="icon-192.png">
+    <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('service-worker.js');
+        }
+    </script>
+</head>
+<body>
+
+<header style="position: relative;">
+    <div style="display:flex; gap:5px;">
+        <!-- Special Commands moved to Header -->
+        <button id="btn-zoom-cmd">ZOOM</button>
+        <button id="btn-move-cmd">MOVE</button>
+        <button id="btn-base-cmd">BASE</button>
+        <button id="btn-rotate-cmd">ROTATE</button>
+        <button id="btn-copy-cmd">COPY</button>
+        <button id="btn-inv-cmd">INV</button>
+        <button id="btn-merge-cmd">MERGE</button>
+        <button id="btn-clear-cmd">CLEAR</button>
+        <button id="btn-fine-all" style="background:#e67e22; font-weight:bold;">All Fine</button>
+    </div>
+    
+    <div style="position: absolute; left: 50%; transform: translateX(-50%); font-weight:bold; font-size: 16px;">
+        TextToCAD v1.73
+    </div>
+
+    <div>
+        <input type="file" id="file-import" accept=".dxf" style="display:none;">
+        <button id="btn-import">Import DXF</button>
+        <button id="btn-export">Export DXF</button>
+        <button id="btn-cap-cmd">CAP</button>
+        <button id="btn-undo">Undo</button>
+        <button id="btn-redo">Redo</button>
+        <button id="btn-snap">Snap: OFF</button>
+        <button id="btn-delete" style="background:#d9534f;">Delete</button>
+    </div>
+</header>
+
+<div id="main-container">
+    <div id="canvas-container">
+        <canvas id="cadCanvas"></canvas>
+        <div id="properties-panel">
+            <h3>Properties</h3>
+            <div id="prop-content"></div>
+        </div>
+    </div>
+    <div id="bottom-pane">
+        <div id="log"></div>
+        <div id="right-pane">
+            <div id="info-bar">
+                <button id="btn-mode-move">MOVE Mode: OFF</button>
+                <button id="btn-mode-hatch" style="margin-left:5px;">HATCH Mode: OFF</button>
+                <div id="coords-display">0.00, 0.00</div>
+                <div id="layer-container" style="display:flex; gap:5px; align-items:center;"></div>
+            </div>
+            <div id="command-area">
+                <input type="text" id="command-input" placeholder="例: RECT 100 100 200 200" autocomplete="off">
+                <button id="btn-exec" style="min-width: 80px;">Exec</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // --- Data Structure ---
+    // Shapes: Array of objects { type, ...params, lineType, layer }
+    // type: 'LINE', 'RECT', 'CIRCLE', 'TEXT'
+    // layer: 1-10 (integer)
+    let shapes = [];
+    let cutAuxiliaryLines = []; // New array for temporary cut lines
+
+    // Layer State
+    // Visibility: true = visible
+    let layerVisibility = new Array(11).fill(true); // Index 1-10 used
+
+    // Snap State
+    let isSnapEnabled = false;
+    const gridSize = 10;
+    let isMoveMode = false;
+
+    // Undo/Redo History
+    let history = [];
+    let historyStep = -1;
+    
+    // Add Layer Panel to DOM
+    const layerPanel = document.createElement('div');
+    layerPanel.id = 'layer-panel';
+    // Style handled by flex layout now, removed absolute positioning
+    layerPanel.style.cssText = `
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        white-space: nowrap;
+        font-size: 12px;
+    `;
+    // Append to the new container in Info Bar
+    document.getElementById('layer-container').appendChild(layerPanel);
+
+    function initLayerPanel() {
+        layerPanel.innerHTML = '';
+        
+        const title = document.createElement('span');
+        title.textContent = 'Layers:';
+        title.style.fontWeight = 'bold';
+        title.style.marginRight = '5px';
+        layerPanel.appendChild(title);
+
+        for (let i = 1; i <= 10; i++) {
+            const lbl = document.createElement('label');
+            lbl.style.display = 'flex';
+            lbl.style.alignItems = 'center';
+            lbl.style.cursor = 'pointer';
+            
+            const chk = document.createElement('input');
+            chk.type = 'checkbox';
+            chk.checked = layerVisibility[i];
+            chk.onchange = (e) => {
+                layerVisibility[i] = e.target.checked;
+                draw();
+            };
+            
+            const txt = document.createTextNode(i);
+            lbl.appendChild(chk);
+            lbl.appendChild(txt);
+            layerPanel.appendChild(lbl);
+        }
+    }
+    initLayerPanel();
+
+    const MAX_HISTORY = 50;
+
+    function saveHistory() {
+        if (historyStep < history.length - 1) {
+            history = history.slice(0, historyStep + 1);
+        }
+        history.push(JSON.stringify(shapes));
+        
+        if (history.length > MAX_HISTORY) {
+            history.shift();
+            historyStep = history.length - 1;
+        } else {
+            historyStep++;
+        }
+    }
+
+    function undo() {
+        if (historyStep > 0) {
+            historyStep--;
+            shapes = JSON.parse(history[historyStep]);
+            // Also clear auxiliary lines on undo/redo
+            cutAuxiliaryLines = [];
+            selectedShapeIndex = -1;
+            updatePropertiesPanel();
+            draw();
+            log('Undo');
+        }
+    }
+
+    function redo() {
+        if (historyStep < history.length - 1) {
+            historyStep++;
+            shapes = JSON.parse(history[historyStep]);
+            // Also clear auxiliary lines on undo/redo
+            cutAuxiliaryLines = [];
+            selectedShapeIndex = -1;
+            updatePropertiesPanel();
+            draw();
+            log('Redo');
+        }
+    }
+    
+    // Viewport state
+    let view = {
+        x: 0, // Pan X
+        y: 0, // Pan Y
+        scale: 1.0,
+        isDragging: false,
+        lastX: 0,
+        lastY: 0,
+        mode: 'PAN', // 'PAN' or 'MOVE'
+        didMoveShape: false, // Track if a move actually happened
+        dragStartShape: null, // Stores state of shape before drag
+        dragDelayUntil: 0 // Timestamp to block drag start
+    };
+    
+    let selectedShapeIndex = -1;
+    let lastMouseWorldX = 0; // Global to store last mouse world X
+    let lastMouseWorldY = 0; // Global to store last mouse world Y
+    
+    // Capture Mode State
+    let isCaptureMode = false;
+
+    let captureThreshold = 180;
+    let captureStart = null; // {x, y} screen coords
+    let captureCurrent = null; // {x, y} screen coords
+
+    // Hatching Mode State
+    let isHatchingMode = false;
+    let hatchingPoints = [];
+
+    // Command names for quick input
+    const commandNames = ['LINE', 'RECT', 'CIRCLE', 'TEXT', 'DIM', 'ANGLE', 'CUTLINE', 'CUTEXE'];
+    let commandNameIndex = -1; // -1 means no command name selected yet
+    
+    // Command History
+    let cmdHistory = [];
+    let cmdHistoryIndex = -1;
+    let isCommandInputMode = false; // Mode to input coordinates by click
+
+    const commandExamples = {
+        'LINE': 'LINE x1 y1 x2 y2',
+        'RECT': 'RECT x1 y1 x2 y2',
+        'CIRCLE': 'CIRCLE cx cy r',
+        'TEXT': 'TEXT x y [size] content',
+        'DIM': 'DIM x1 y1 x2 y2 [offset]',
+        'ANGLE': 'ANGLE cx cy x1 y1 x2 y2 [r]',
+        'CUTLINE': 'CUTLINE x1 y1 x2 y2',
+        'CUTEXE': 'CUTEXE',
+        'ZOOM': 'ZOOM Vscale Hscale',
+        'MOVE': 'MOVE dx [dy] [layer]',
+        'BASE': 'BASE x y [layer]',
+        'ROTATE': 'ROTATE angle',
+        'COPY': 'COPY src_layer dest_layer',
+        'INV': 'INV src_layer dest_layer',
+        'MERGE': 'MERGE layer1 layer2',
+        'CLEAR': 'CLEAR',
+        'CAP': 'CAP'
+    };
+
+    // Header Command Buttons Logic
+    const setupHeaderCmd = (btnId, cmd, immediate = false) => {
+        document.getElementById(btnId).addEventListener('click', () => {
+            if (immediate) {
+                executeCommand(cmd);
+            } else {
+                cmdInput.value = cmd + ' ';
+                cmdInput.focus();
+                isCommandInputMode = false;
+                if (commandExamples[cmd]) {
+                    log(`Example: ${commandExamples[cmd]}`);
+                } else {
+                    log(`${cmd} command ready.`);
+                }
+            }
+        });
+    };
+    setupHeaderCmd('btn-zoom-cmd', 'ZOOM');
+    setupHeaderCmd('btn-move-cmd', 'MOVE');
+    setupHeaderCmd('btn-base-cmd', 'BASE');
+    setupHeaderCmd('btn-rotate-cmd', 'ROTATE');
+    setupHeaderCmd('btn-copy-cmd', 'COPY');
+    setupHeaderCmd('btn-inv-cmd', 'INV');
+    setupHeaderCmd('btn-merge-cmd', 'MERGE');
+    setupHeaderCmd('btn-cap-cmd', 'CAP', true); // Immediate execution
+    setupHeaderCmd('btn-clear-cmd', 'CLEAR');
+
+    // All Fine Button Logic (New)
+    document.getElementById('btn-fine-all').addEventListener('click', () => {
+        if (!shapes.length) return;
+        
+        const confirmMsg = "全ての要素の線種を「細線 (thin)」に変更しますか？";
+        if (confirm(confirmMsg)) {
+            let count = 0;
+            shapes.forEach(s => {
+                s.lineType = 'thin';
+                count++;
+            });
+            draw();
+            saveHistory();
+            log(`${count} elements changed to Thin Line.`);
+        }
+    });
+
+
+    // Hatch Mode Toggle
+    const btnModeHatch = document.getElementById('btn-mode-hatch');
+    if (btnModeHatch) {
+        btnModeHatch.addEventListener('click', () => {
+            isHatchingMode = !isHatchingMode;
+            hatchingPoints = [];
+            
+            // Update UI
+            btnModeHatch.textContent = `HATCH Mode: ${isHatchingMode ? 'ON' : 'OFF'}`;
+            btnModeHatch.style.background = isHatchingMode ? '#dc3545' : '#007bff';
+            
+            if (isHatchingMode) {
+                log('HATCH Mode: Double-click circle to hatch. Right-click for polygon.');
+                // Disable Move Mode
+                if (isMoveMode) {
+                    isMoveMode = false;
+                    btnModeMove.style.background = '#007bff';
+                    btnModeMove.textContent = 'MOVE Mode: OFF';
+                }
+            } else {
+                log('Exited HATCH Mode.');
+            }
+            draw();
+        });
+    }
+
+    // Add Command List Panel
+    const cmdListPanel = document.createElement('div');
+    cmdListPanel.style.cssText = `
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        background: rgba(255, 255, 255, 0.9);
+        border: 1px solid #999;
+        padding: 5px;
+        border-radius: 4px;
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+        width: 100px;
+        z-index: 90;
+    `;
+    document.getElementById('canvas-container').appendChild(cmdListPanel);
+    
+
+
+    commandNames.forEach(cmd => {
+        const btn = document.createElement('button');
+        btn.textContent = cmd;
+        btn.style.fontSize = '12px';
+        btn.style.padding = '4px';
+        btn.onclick = () => {
+            if (cmd === 'CUTEXE') {
+                executeCommand(cmd);
+                return;
+            }
+            cmdInput.value = cmd + ' ';
+            cmdInput.focus();
+
+            // Show example in log
+            if (commandExamples[cmd]) {
+                log(`Example: ${commandExamples[cmd]}`);
+            }
+
+            // Only enter command input mode for commands that expect coordinate input
+            if (['LINE', 'RECT', 'CIRCLE', 'TEXT', 'DIM', 'CUTLINE'].includes(cmd)) {
+                isCommandInputMode = true;
+            } else {
+                isCommandInputMode = false; // For commands like CUTEXE, CAP, CLEAR
+            }
+        };
+        cmdListPanel.appendChild(btn);
+    });
+
+
+    // DOM Elements
+    const canvas = document.getElementById('cadCanvas');
+    const ctx = canvas.getContext('2d');
+    const cmdInput = document.getElementById('command-input');
+    const btnExec = document.getElementById('btn-exec');
+    const btnDelete = document.getElementById('btn-delete');
+    const btnUndo = document.getElementById('btn-undo');
+    const btnRedo = document.getElementById('btn-redo');
+    const btnSnap = document.getElementById('btn-snap');
+    const btnModeMove = document.getElementById('btn-mode-move');
+    const logDiv = document.getElementById('log');
+    const container = document.getElementById('canvas-container');
+    const propPanel = document.getElementById('properties-panel');
+    const propContent = document.getElementById('prop-content');
+
+    function log(msg, type = 'info') {
+        const div = document.createElement('div');
+        div.textContent = msg;
+        if (type === 'error') div.style.color = '#ff5555';
+        logDiv.appendChild(div);
+        logDiv.scrollTop = logDiv.scrollHeight;
+    }
+
+    const EPSILON = 0.001; // Global tolerance for floating-point comparisons
+
+    btnSnap.addEventListener('click', () => {
+        isSnapEnabled = !isSnapEnabled;
+        btnSnap.textContent = `Snap: ${isSnapEnabled ? 'ON' : 'OFF'}`;
+        btnSnap.style.background = isSnapEnabled ? '#28a745' : '#007bff';
+        draw();
+    });
+
+    btnModeMove.addEventListener('click', () => {
+        isMoveMode = !isMoveMode;
+        btnModeMove.textContent = `MOVE Mode: ${isMoveMode ? 'ON' : 'OFF'}`;
+        btnModeMove.style.background = isMoveMode ? '#dc3545' : '#007bff';
+        if (isMoveMode) {
+            // Disable Hatch Mode
+            if (isHatchingMode) {
+                isHatchingMode = false;
+                btnModeHatch.textContent = 'HATCH Mode: OFF';
+                btnModeHatch.style.background = '#007bff';
+            }
+            
+            selectedShapeIndex = -1; // Deselect
+            updatePropertiesPanel();
+            draw();
+            log('Entered MOVE Mode. Drag to move all visible shapes.');
+        } else {
+            log('Exited MOVE Mode.');
+        }
+    });
+
+    function snap(val) {
+        if (!isSnapEnabled) return val;
+        return Math.round(val / gridSize) * gridSize;
+    }
+
+
+    // --- Properties Panel ---
+    function updatePropertiesPanel() {
+        if (selectedShapeIndex < 0 || selectedShapeIndex >= shapes.length) {
+            propPanel.style.display = 'none';
+            return;
+        }
+        const s = shapes[selectedShapeIndex];
+        propPanel.style.display = 'block';
+        propContent.innerHTML = '';
+
+        const createInput = (label, val, onChange) => {
+            const row = document.createElement('div');
+            row.className = 'prop-row';
+            const lbl = document.createElement('label');
+            lbl.textContent = label;
+            const inp = document.createElement('input');
+            inp.type = 'number';
+            inp.step = 'any'; // Allow decimals
+            inp.value = Math.round(val * 100) / 100; // Round for display
+            inp.onchange = (e) => {
+                const newVal = parseFloat(e.target.value);
+                if (!isNaN(newVal)) {
+                    onChange(newVal);
+                    draw();
+                    saveHistory();
+                }
+            };
+            row.appendChild(lbl);
+            row.appendChild(inp);
+            propContent.appendChild(row);
+        };
+
+        const createTextInput = (label, val, onChange) => {
+            const row = document.createElement('div');
+            row.className = 'prop-row';
+            const lbl = document.createElement('label');
+            lbl.textContent = label;
+            const inp = document.createElement('input');
+            inp.type = 'text';
+            inp.style.width = '100px';
+            inp.value = val;
+            inp.onchange = (e) => {
+                onChange(e.target.value);
+                draw();
+                saveHistory();
+            };
+            row.appendChild(lbl);
+            row.appendChild(inp);
+            propContent.appendChild(row);
+        };
+
+        const createSelect = (label, options, val, onChange) => {
+            const row = document.createElement('div');
+            row.className = 'prop-row';
+            const lbl = document.createElement('label');
+            lbl.textContent = label;
+            const sel = document.createElement('select');
+            options.forEach(opt => {
+                const option = document.createElement('option');
+                option.value = opt.value;
+                option.textContent = opt.text;
+                if (opt.value === val) option.selected = true;
+                sel.appendChild(option);
+            });
+            sel.onchange = (e) => {
+                onChange(e.target.value);
+                draw();
+                saveHistory();
+            };
+            row.appendChild(lbl);
+            row.appendChild(sel);
+            propContent.appendChild(row);
+        };
+
+        // Layer Selector
+        const layerOpts = [];
+        for(let i=1; i<=10; i++) layerOpts.push({ value: i, text: `Layer ${i}` });
+        createSelect('Layer', layerOpts, s.layer || 1, v => s.layer = parseInt(v));
+
+        // Color Selector
+        const colorOpts = [
+            { value: '#000000', text: 'Black' },
+            { value: '#ff0000', text: 'Red' },
+            { value: '#0000ff', text: 'Blue' },
+            { value: '#008000', text: 'Green' },
+            { value: '#808080', text: 'Gray' },
+            { value: '#00ffff', text: 'Cyan' }
+        ];
+        createSelect('Color', colorOpts, s.color || '#000000', v => s.color = v);
+
+        // Line Type Selector
+        createSelect('線種', [
+            { value: 'medium', text: '中太 (標準)' },
+            { value: 'thick', text: '極太線' },
+            { value: 'thin', text: '細線' },
+            { value: 'thin-dot', text: '極細破線' },
+            { value: 'thin-dashdot', text: '細一点鎖線' }
+        ], s.lineType || 'medium', v => s.lineType = v);
+
+        if (s.type === 'LINE') {
+            createInput('X1', s.x1, v => s.x1 = v);
+            createInput('Y1', s.y1, v => s.y1 = v);
+            createInput('X2', s.x2, v => s.x2 = v);
+            createInput('Y2', s.y2, v => s.y2 = v);
+        } else if (s.type === 'RECT') {
+            createInput('X', s.x, v => s.x = v);
+            createInput('Y', s.y, v => s.y = v);
+            createInput('W', s.w, v => s.w = v);
+            createInput('H', s.h, v => s.h = v);
+        } else if (s.type === 'CIRCLE') {
+            createInput('CX', s.cx, v => s.cx = v);
+            createInput('CY', s.cy, v => s.cy = v);
+            createInput('R', s.r, v => s.r = v);
+        } else if (s.type === 'ELLIPSE') {
+            createInput('CX', s.cx, v => s.cx = v);
+            createInput('CY', s.cy, v => s.cy = v);
+            createInput('RX', s.rx, v => s.rx = v);
+            createInput('RY', s.ry, v => s.ry = v);
+            createInput('Rotation', (s.rotation || 0) * 180 / Math.PI, v => s.rotation = v * Math.PI / 180);
+        } else if (s.type === 'ARC') {
+            createInput('CX', s.cx, v => s.cx = v);
+            createInput('CY', s.cy, v => s.cy = v);
+            createInput('R', s.r, v => s.r = v);
+            createInput('Start Angle', s.startAngle * 180 / Math.PI, v => s.startAngle = v * Math.PI / 180); // Display in degrees
+            createInput('End Angle', s.endAngle * 180 / Math.PI, v => s.endAngle = v * Math.PI / 180);     // Display in degrees
+            const row = document.createElement('div');
+            row.className = 'prop-row';
+            const lbl = document.createElement('label');
+            lbl.textContent = 'Counter-Clockwise';
+            const chk = document.createElement('input');
+            chk.type = 'checkbox';
+            chk.checked = s.counterClockwise;
+            chk.onchange = (e) => {
+                s.counterClockwise = e.target.checked;
+                draw();
+                saveHistory();
+            };
+            row.appendChild(lbl);
+            row.appendChild(chk);
+            propContent.appendChild(row);
+        } else if (s.type === 'POLYLINE') {
+             const row = document.createElement('div');
+             row.className = 'prop-row';
+             row.style.justifyContent = 'center';
+             row.style.color = '#555';
+             row.textContent = `Polyline: ${s.vertices.length} pts`;
+             propContent.appendChild(row);
+        } else if (s.type === 'TEXT') {
+            createInput('X', s.x, v => s.x = v);
+            createInput('Y', s.y, v => s.y = v);
+            createInput('Size', s.size, v => s.size = v);
+            createTextInput('Content', s.text, v => s.text = v);
+        }
+    }
+
+    // --- Initialization ---
+    function resizeCanvas() {
+        canvas.width = container.clientWidth;
+        canvas.height = container.clientHeight;
+        draw();
+    }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    // --- Main Draw Function ---
+    function draw() {
+        // Clear background
+        ctx.fillStyle = isCaptureMode ? '#ffffff' : '#d0d0d0';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        // Grid
+        ctx.save();
+        ctx.translate(canvas.width/2 + view.x, canvas.height/2 + view.y);
+        ctx.scale(view.scale, -view.scale);
+        
+        if (isSnapEnabled) {
+            const left = (-view.x - canvas.width/2) / view.scale;
+            const right = (-view.x + canvas.width/2) / view.scale;
+            const top = (view.y + canvas.height/2) / view.scale;
+            const bottom = (view.y - canvas.height/2) / view.scale;
+
+            ctx.beginPath();
+            ctx.strokeStyle = '#e8e8e8';
+            ctx.lineWidth = 1 / view.scale;
+
+            const startX = Math.floor(left / gridSize) * gridSize;
+            const startY = Math.floor(bottom / gridSize) * gridSize;
+
+            for (let x = startX; x < right; x += gridSize) {
+                ctx.moveTo(x, bottom); ctx.lineTo(x, top);
+            }
+            for (let y = startY; y < top; y += gridSize) {
+                ctx.moveTo(left, y); ctx.lineTo(right, y);
+            }
+            ctx.stroke();
+        }
+
+        // Origin Axes
+        ctx.beginPath();
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1 / view.scale;
+        ctx.moveTo(-10000, 0); ctx.lineTo(10000, 0);
+        ctx.moveTo(0, -10000); ctx.lineTo(0, 10000);
+        ctx.stroke();
+
+        // Draw Shapes Helper
+        const drawShape = (s, index, isHiddenPass) => {
+            const layer = s.layer || 1;
+            const isLayerVisible = layerVisibility[layer];
+
+            if (isHiddenPass && isLayerVisible) return;
+            if (!isHiddenPass && !isLayerVisible) return;
+
+            ctx.beginPath();
+            
+            let lw = 2.0; 
+            let dash = [];
+            
+            const lt = s.lineType || 'medium';
+            if (lt === 'thick') { lw = 4.0; } 
+            else if (lt === 'thin') { lw = 1.0; } 
+            else if (lt === 'thin-dot') { lw = 1.0; dash = [2, 3]; } 
+            else if (lt === 'thin-dashdot') { lw = 1.0; dash = [10, 3, 2, 3]; }
+
+            ctx.lineWidth = lw / view.scale;
+            ctx.setLineDash(dash.map(d => d / view.scale));
+
+            if (s.type !== 'TEXT') {
+                if (isLayerVisible && index === selectedShapeIndex) {
+                    ctx.strokeStyle = '#ffa500'; // Selected: Orange
+                    ctx.lineWidth = (lw + 2) / view.scale; 
+                } else if (!isLayerVisible) {
+                    ctx.strokeStyle = 'rgba(0, 255, 255, 0.3)';
+                } else {
+                    // Force black border if filled, otherwise use shape color
+                    ctx.strokeStyle = s.filled ? '#000000' : (s.color || '#000');
+                }
+            }
+
+            if (s.type === 'LINE') drawLine(ctx, s, view);
+            else if (s.type === 'RECT') drawRect(ctx, s, view);
+            else if (s.type === 'CIRCLE') drawCircle(ctx, s, view);
+            else if (s.type === 'ELLIPSE') drawEllipse(ctx, s, view);
+            else if (s.type === 'ARC') drawArc(ctx, s, view);
+            else if (s.type === 'POLYLINE') drawPolyline(ctx, s, view);
+            else if (s.type === 'TEXT') drawText(ctx, s, view, index === selectedShapeIndex, isLayerVisible);
+            
+            ctx.setLineDash([]); // Reset dash
+        };
+
+        // Pass 1: Draw Hidden Layers
+        shapes.forEach((s, index) => drawShape(s, index, true));
+
+        // Pass 2: Draw Visible Layers
+        shapes.forEach((s, index) => drawShape(s, index, false));
+
+        // Draw Auxiliary Lines
+        cutAuxiliaryLines.forEach(s => drawAuxiliaryLine(s));
+
+        // Draw Hatching Preview
+        if (isHatchingMode && hatchingPoints.length > 0) {
+            ctx.beginPath();
+            ctx.strokeStyle = '#ff00ff'; // Magenta for hatching preview
+            ctx.lineWidth = 1 / view.scale;
+            ctx.setLineDash([5 / view.scale, 3 / view.scale]);
+            
+            ctx.moveTo(hatchingPoints[0].x, hatchingPoints[0].y);
+            for (let i = 1; i < hatchingPoints.length; i++) {
+                ctx.lineTo(hatchingPoints[i].x, hatchingPoints[i].y);
+            }
+            // Line to current mouse pos
+            ctx.lineTo(lastMouseWorldX, lastMouseWorldY);
+            
+            ctx.stroke();
+            
+            // Draw points
+            ctx.fillStyle = '#ff00ff';
+            hatchingPoints.forEach(p => {
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, 3 / view.scale, 0, Math.PI*2);
+                ctx.fill();
+            });
+            
+            ctx.setLineDash([]);
+        }
+
+        // Draw Capture Selection Box
+        if (isCaptureMode && captureStart && captureCurrent) {
+            ctx.save();
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+            
+            const x = Math.min(captureStart.x, captureCurrent.x);
+            const y = Math.min(captureStart.y, captureCurrent.y);
+            const w = Math.abs(captureCurrent.x - captureStart.x);
+            const h = Math.abs(captureCurrent.y - captureStart.y);
+
+            ctx.strokeStyle = '#007bff';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([5, 3]);
+            ctx.strokeRect(x, y, w, h);
+            
+            ctx.fillStyle = 'rgba(0, 123, 255, 0.1)';
+            ctx.fillRect(x, y, w, h);
+            
+            ctx.restore();
+        }
+
+        ctx.restore();
+    }
+
+    // --- Drawing Helpers ---
+    function drawLine(ctx, s, view) {
+        ctx.moveTo(s.x1, s.y1);
+        ctx.lineTo(s.x2, s.y2);
+        ctx.stroke();
+    }
+
+    function drawRect(ctx, s, view) {
+        ctx.rect(s.x, s.y, s.w, s.h);
+        ctx.stroke();
+    }
+
+    function drawCircle(ctx, s, view) {
+        ctx.beginPath();
+        ctx.arc(s.cx, s.cy, s.r, 0, Math.PI * 2);
+        if (s.filled) {
+            ctx.save();
+            ctx.globalAlpha = 0.3;
+            ctx.fillStyle = s.color || '#000';
+            ctx.fill();
+            ctx.restore();
+        }
+        ctx.stroke();
+    }
+
+    function drawEllipse(ctx, s, view) {
+        ctx.ellipse(s.cx, s.cy, s.rx, s.ry, s.rotation || 0, s.startAngle || 0, s.endAngle || 2*Math.PI, s.counterClockwise || false);
+        ctx.stroke();
+    }
+
+    function drawArc(ctx, s, view) {
+        ctx.arc(s.cx, s.cy, s.r, s.startAngle, s.endAngle, s.counterClockwise);
+        ctx.stroke();
+    }
+
+    function drawPolyline(ctx, s, view) {
+        if (s.vertices.length > 0) {
+            ctx.moveTo(s.vertices[0].x, s.vertices[0].y);
+            for (let i = 1; i < s.vertices.length; i++) {
+                ctx.lineTo(s.vertices[i].x, s.vertices[i].y);
+            }
+            if (s.closed) ctx.closePath();
+            
+            if (s.filled) {
+                ctx.save();
+                ctx.globalAlpha = 0.3;
+                ctx.fillStyle = s.fillColor || s.color || '#000';
+                ctx.fill();
+                ctx.restore();
+            }
+            ctx.stroke();
+        }
+    }
+
+    function drawText(ctx, s, view, isSelected, isVisible) {
+        if (isVisible && isSelected) {
+            ctx.fillStyle = '#ffa500'; // Selected: Orange
+        } else if (!isVisible) {
+            ctx.fillStyle = 'rgba(0, 255, 255, 0.3)';
+        } else {
+            ctx.fillStyle = s.color || '#000';
+        }
+        
+        ctx.save();
+        ctx.translate(s.x, s.y);
+        ctx.scale(1, -1); 
+        ctx.font = `${s.size}px monospace`;
+        ctx.fillText(s.text, 0, 0);
+        ctx.restore();
+    }
+
+
+    function getActiveLayer() {
+        // Find the first visible layer (lowest number)
+        for (let i = 1; i <= 10; i++) {
+            if (layerVisibility[i]) return i;
+        }
+        return 1; // Default if all hidden (though unlikely/shouldn't happen normally)
+    }
+
+    function drawAuxiliaryLine(s) {
+        ctx.beginPath();
+        ctx.strokeStyle = '#0000ff';
+        ctx.lineWidth = 1 / view.scale;
+        ctx.setLineDash([5 / view.scale, 5 / view.scale]); 
+        
+        if (s.type === 'CUTLINE_AUX') {
+            ctx.moveTo(s.x1, s.y1);
+            ctx.lineTo(s.x2, s.y2);
+        }
+        ctx.stroke();
+        ctx.setLineDash([]); // Reset dash
+    }
+
+    
+    // --- Hit Test Helpers ---
+    function isHitLine(s, wx, wy, tolerance) {
+        const A = wx - s.x1;
+        const B = wy - s.y1;
+        const C = s.x2 - s.x1;
+        const D = s.y2 - s.y1;
+
+        const dot = A * C + B * D;
+        const len_sq = C * C + D * D;
+        let param = -1;
+        if (len_sq !== 0) param = dot / len_sq;
+
+        let xx, yy;
+        if (param < 0) {
+            xx = s.x1;
+            yy = s.y1;
+        } else if (param > 1) {
+            xx = s.x2;
+            yy = s.y2;
+        } else {
+            xx = s.x1 + param * C;
+            yy = s.y1 + param * D;
+        }
+
+        const dx = wx - xx;
+        const dy = wy - yy;
+        return (dx * dx + dy * dy) < tolerance * tolerance;
+    }
+
+    function isHitRect(s, wx, wy, tolerance) {
+        const lines = [
+            { x1: s.x, y1: s.y, x2: s.x + s.w, y2: s.y },
+            { x1: s.x + s.w, y1: s.y, x2: s.x + s.w, y2: s.y + s.h },
+            { x1: s.x + s.w, y1: s.y + s.h, x2: s.x, y2: s.y + s.h },
+            { x1: s.x, y1: s.y + s.h, x2: s.x, y2: s.y }
+        ];
+        for (let l of lines) {
+            if (isHitLine(l, wx, wy, tolerance)) return true;
+        }
+        return false;
+    }
+
+    function isHitCircle(s, wx, wy, tolerance) {
+        const dist = Math.sqrt((wx - s.cx) ** 2 + (wy - s.cy) ** 2);
+        return Math.abs(dist - s.r) < tolerance;
+    }
+
+    function isHitEllipse(s, wx, wy, tolerance) {
+        const dx = wx - s.cx;
+        const dy = wy - s.cy;
+        const cos = Math.cos(-s.rotation);
+        const sin = Math.sin(-s.rotation);
+        const lx = dx * cos - dy * sin;
+        const ly = dx * sin + dy * cos;
+        
+        const val = (lx*lx)/(s.rx*s.rx) + (ly*ly)/(s.ry*s.ry);
+        
+        const gradX = 2*lx / (s.rx*s.rx);
+        const gradY = 2*ly / (s.ry*s.ry);
+        const gradLen = Math.sqrt(gradX*gradX + gradY*gradY);
+        const distApprox = Math.abs(val - 1) / gradLen;
+        
+        return distApprox < tolerance;
+    }
+
+    function isHitPolyline(s, wx, wy, tolerance) {
+        for (let j = 0; j < s.vertices.length - 1; j++) {
+            const p1 = s.vertices[j];
+            const p2 = s.vertices[j+1];
+            if (isHitLine({x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y}, wx, wy, tolerance)) return true;
+        }
+        return false;
+    }
+
+    function isHitArc(s, wx, wy, tolerance) {
+        const distToCenter = Math.sqrt((wx - s.cx)**2 + (wy - s.cy)**2);
+        if (Math.abs(distToCenter - s.r) >= tolerance) return false;
+
+        let angle = Math.atan2(wy - s.cy, wx - s.cx);
+        let start = (s.startAngle + 2 * Math.PI) % (2 * Math.PI);
+        let end = (s.endAngle + 2 * Math.PI) % (2 * Math.PI);
+        angle = (angle + 2 * Math.PI) % (2 * Math.PI);
+        
+        if (start > end) {
+            if (s.counterClockwise) {
+                return angle <= start && angle >= end;
+            } else {
+                return angle >= start || angle <= end;
+            }
+        } else {
+            if (s.counterClockwise) {
+                return angle <= start && angle >= end;
+            } else {
+                return angle >= start && angle <= end;
+            }
+        }
+    }
+
+    function isHitText(s, wx, wy) {
+        const w = s.text.length * s.size * 0.6;
+        const h = s.size;
+        return wx >= s.x && wx <= s.x + w && wy >= s.y && wy <= s.y + h;
+    }
+
+    function hitTest(screenX, screenY) {
+        // Convert screen coords to world coords
+        const wx = (screenX - (canvas.width/2 + view.x)) / view.scale;
+        const wy = - (screenY - (canvas.height/2 + view.y)) / view.scale; // Y flip
+        
+        const hits = [];
+        const tolerance = 5 / view.scale; // 5 pixels tolerance
+
+        for (let i = shapes.length - 1; i >= 0; i--) {
+            const s = shapes[i];
+            const layer = s.layer || 1;
+            if (!layerVisibility[layer]) continue; // Skip hidden layers
+
+            let hit = false;
+            if (s.type === 'LINE') hit = isHitLine(s, wx, wy, tolerance);
+            else if (s.type === 'RECT') hit = isHitRect(s, wx, wy, tolerance);
+            else if (s.type === 'CIRCLE') hit = isHitCircle(s, wx, wy, tolerance);
+            else if (s.type === 'ELLIPSE') hit = isHitEllipse(s, wx, wy, tolerance);
+            else if (s.type === 'POLYLINE') hit = isHitPolyline(s, wx, wy, tolerance);
+            else if (s.type === 'ARC') hit = isHitArc(s, wx, wy, tolerance);
+            else if (s.type === 'TEXT') hit = isHitText(s, wx, wy);
+            
+            if (hit) hits.push(i);
+        }
+        return hits;
+    }
+
+    btnDelete.addEventListener('click', () => {
+        if (selectedShapeIndex >= 0) {
+            shapes.splice(selectedShapeIndex, 1);
+            selectedShapeIndex = -1;
+            updatePropertiesPanel();
+            draw();
+            log('Shape deleted.');
+            saveHistory();
+        }
+    });
+
+    btnUndo.addEventListener('click', undo);
+    btnRedo.addEventListener('click', redo);
+
+    // Pan / Zoom / Select / Move
+    canvas.addEventListener('mousedown', e => {
+        // Middle Click (Button 1) for Exec Only (No Pan)
+        if (e.button === 1) {
+            e.preventDefault();
+            view.startClickX = e.clientX;
+            view.startClickY = e.clientY;
+            view.dragStartTime = Date.now();
+            // view.isDragging = true; // Disabled dragging for Middle Button
+            // view.mode = 'PAN';
+            return;
+        }
+
+        // Convert click to canvas-relative coords
+        const rect = canvas.getBoundingClientRect();
+        const mx = e.clientX - rect.left;
+        const my = e.clientY - rect.top;
+        
+        if (isCaptureMode) {
+            captureStart = { x: mx, y: my };
+            captureCurrent = { x: mx, y: my };
+            draw();
+            return;
+        }
+
+        if (isMoveMode && e.button === 0) {
+            view.mode = 'MOVE_ALL';
+            view.dragMovingShapes = [];
+            
+            // Store initial state of ALL visible shapes
+            shapes.forEach((s, index) => {
+                const layer = s.layer || 1;
+                if (layerVisibility[layer]) {
+                    view.dragMovingShapes.push({
+                        index: index,
+                        initialShape: JSON.parse(JSON.stringify(s))
+                    });
+                }
+            });
+
+            view.lastX = e.clientX;
+            view.lastY = e.clientY;
+            view.startClickX = e.clientX;
+            view.startClickY = e.clientY;
+            view.isDragging = true;
+            view.dragDelayUntil = Date.now() + 500; // Block movement for 500ms
+            return;
+        }
+
+        // Pass canvas-relative coords to hitTest
+        const hits = hitTest(mx, my);
+        
+        if (hits.length > 0 && e.button === 0) {
+            let nextSelect = hits[0];
+            
+            // Toggle / Cycle selection
+            if (selectedShapeIndex >= 0) {
+                const currentHitIndex = hits.indexOf(selectedShapeIndex);
+                if (currentHitIndex >= 0) {
+                    // Currently selected is in the hit list. Select next one.
+                    let nextIndex = currentHitIndex + 1;
+                    if (nextIndex >= hits.length) nextIndex = 0;
+                    nextSelect = hits[nextIndex];
+                }
+            }
+            
+            selectedShapeIndex = nextSelect;
+            
+            view.mode = 'MOVE';
+            view.dragStartShape = JSON.parse(JSON.stringify(shapes[selectedShapeIndex]));
+            view.dragDelayUntil = Date.now() + 500; // Block movement for 500ms
+        } else {
+            selectedShapeIndex = -1; // Deselect
+            view.mode = 'PAN';
+        }
+        
+        view.lastX = e.clientX;
+        view.lastY = e.clientY;
+        
+        view.startClickX = e.clientX;
+        view.startClickY = e.clientY;
+        view.isDragging = true;
+
+        updatePropertiesPanel();
+        draw();
+    });
+    
+    window.addEventListener('mouseup', (e) => {
+        // Middle Button Click Execution Check
+        if (e.button === 1) {
+             const dist = Math.sqrt(Math.pow(e.clientX - view.startClickX, 2) + Math.pow(e.clientY - view.startClickY, 2));
+             const timeDiff = Date.now() - view.dragStartTime;
+             // If click is short (< 300ms) and movement is small (< 5px), execute command
+             if (dist < 5 && timeDiff < 300) {
+                 executeCommand(cmdInput.value);
+             }
+             return;
+        }
+
+        if (isCaptureMode && captureStart && captureCurrent) {
+            // Finalize Capture
+            const x = Math.min(captureStart.x, captureCurrent.x);
+            const y = Math.min(captureStart.y, captureCurrent.y);
+            const w = Math.abs(captureCurrent.x - captureStart.x);
+            const h = Math.abs(captureCurrent.y - captureStart.y);
+
+                        if (w > 0 && h > 0) {
+                            // Create a temporary canvas to crop the image with higher resolution
+                            const scaleFactor = 2; // Increase resolution by 2x
+                            const tempCanvas = document.createElement('canvas');
+                            tempCanvas.width = w * scaleFactor;
+                            tempCanvas.height = h * scaleFactor;
+                            const tempCtx = tempCanvas.getContext('2d');
+                            
+                            // Draw the selected portion from the main canvas to the temp canvas
+                            // Note: we need to draw the main canvas content *without* the selection box first.
+                            // But since the selection box is drawn in 'draw()', we can just redraw the scene
+                            // to the main canvas (clearing the box) before capturing, then draw the box again if we wanted (but we're ending capture).
+                            
+                            // 1. Redraw scene without selection box (isCaptureMode is still true, background is White)
+                            const savedStart = captureStart;
+                            captureStart = null; // Hide box for redraw
+                            draw(); 
+                            
+                            // Scale context for high-res drawing
+                            tempCtx.scale(scaleFactor, scaleFactor);
+                            // Draw Image directly
+                            tempCtx.drawImage(canvas, x, y, w, h, 0, 0, w, h);
+                            
+                            // Save Capture
+                            tempCanvas.toBlob(async (blob) => {
+                                if (window.showSaveFilePicker) {
+                                    try {
+                                        const handle = await window.showSaveFilePicker({
+                                            suggestedName: `capture_${Date.now()}.png`,
+                                            types: [{
+                                                description: 'PNG Image',
+                                                accept: { 'image/png': ['.png'] },
+                                            }],
+                                        });
+                                        const writable = await handle.createWritable();
+                                        await writable.write(blob);
+                                        await writable.close();
+                                        log('Image captured (Saved As).');
+                                    } catch (err) {
+                                        if (err.name !== 'AbortError') {
+                                            console.error('Save File Picker failed:', err);
+                                            log('Save failed: ' + err.message, 'error');
+                                        } else {
+                                            log('Capture save cancelled.');
+                                        }
+                                    }
+                                } else {
+                                    // Fallback for browsers without API
+                                    const link = document.createElement('a');
+                                    link.download = `capture_${Date.now()}.png`;
+                                    link.href = URL.createObjectURL(blob);
+                                    document.body.appendChild(link);
+                                    link.click();
+                                    document.body.removeChild(link);
+                                    URL.revokeObjectURL(link.href);
+                                    log('Image captured (Download).');
+                                }
+                            });
+                        }
+            
+                        isCaptureMode = false;
+                        captureStart = null;
+                        captureCurrent = null;
+                        canvas.style.cursor = 'crosshair';
+                        draw(); // Redraw (Background returns to Gray)
+                        return;
+                    }
+        if (view.isDragging && view.didMoveShape) {
+            saveHistory();
+            updatePropertiesPanel();
+        }
+        view.isDragging = false;
+        view.mode = 'PAN';
+    });
+    
+    canvas.addEventListener('mousemove', e => {
+        // Update Coordinates Display
+        const rect = canvas.getBoundingClientRect();
+        const mx = e.clientX - rect.left;
+        const my = e.clientY - rect.top;
+        
+        const wx = (mx - (canvas.width/2 + view.x)) / view.scale;
+        const wy = - (my - (canvas.height/2 + view.y)) / view.scale;
+        
+        document.getElementById('coords-display').textContent = `${wx.toFixed(2)}, ${wy.toFixed(2)}`;
+        lastMouseWorldX = wx;
+        lastMouseWorldY = wy;
+
+        if (isCaptureMode && captureStart) {
+            captureCurrent = { x: mx, y: my };
+            draw();
+            return;
+        }
+
+        if (view.isDragging) {
+            if (view.mode === 'PAN') {
+                const dx = e.clientX - view.lastX;
+                const dy = e.clientY - view.lastY;
+                view.x += dx;
+                view.y += dy;
+            } else if ((view.mode === 'MOVE' || view.mode === 'MOVE_ALL') && Date.now() < view.dragDelayUntil) {
+                 // Do nothing, waiting for delay to pass
+                 // We don't update lastX/lastY here so that when it DOES start moving, 
+                 // it jumps or we might want to reset the anchor? 
+                 // Actually better to just consume the event and update lastX/Y so no big jump happens, 
+                 // but no movement is applied to the shape.
+                 view.lastX = e.clientX;
+                 view.lastY = e.clientY;
+                 return; 
+            } else if (view.mode === 'MOVE' && selectedShapeIndex >= 0 && view.dragStartShape) {
+                view.didMoveShape = true;
+                
+                const totalDx = (e.clientX - view.startClickX) / view.scale;
+                const totalDy = -(e.clientY - view.startClickY) / view.scale;
+                
+                const s = shapes[selectedShapeIndex];
+                const startS = view.dragStartShape;
+                
+                let diffX = totalDx;
+                let diffY = totalDy;
+
+                if (isSnapEnabled) {
+                    // Simple snap logic based on start position
+                     let anchorX = 0, anchorY = 0;
+                    if (s.type === 'RECT') { anchorX = startS.x; anchorY = startS.y; }
+                    else if (s.type === 'CIRCLE') { anchorX = startS.cx; anchorY = startS.cy; }
+                    else if (s.type === 'ELLIPSE') { anchorX = startS.cx; anchorY = startS.cy; }
+                    else if (s.type === 'LINE') { anchorX = startS.x1; anchorY = startS.y1; }
+                    else if (s.type === 'POLYLINE') { anchorX = startS.vertices[0].x; anchorY = startS.vertices[0].y; }
+                    else if (s.type === 'TEXT') { anchorX = startS.x; anchorY = startS.y; }
+                    else if (s.type === 'ARC') { anchorX = startS.cx; anchorY = startS.cy; }
+                    
+                    const snappedX = snap(anchorX + totalDx);
+                    const snappedY = snap(anchorY + totalDy);
+                    diffX = snappedX - anchorX;
+                    diffY = snappedY - anchorY;
+                }
+
+                if (s.type === 'LINE') {
+                    s.x1 = startS.x1 + diffX; s.y1 = startS.y1 + diffY;
+                    s.x2 = startS.x2 + diffX; s.y2 = startS.y2 + diffY;
+                } else if (s.type === 'RECT') {
+                    s.x = startS.x + diffX; s.y = startS.y + diffY;
+                } else if (s.type === 'CIRCLE') {
+                    s.cx = startS.cx + diffX; s.cy = startS.cy + diffY;
+                } else if (s.type === 'POLYLINE') {
+                    for(let i=0; i<s.vertices.length; i++) {
+                        s.vertices[i].x = startS.vertices[i].x + diffX;
+                        s.vertices[i].y = startS.vertices[i].y + diffY;
+                    }
+                } else if (s.type === 'TEXT') {
+                    s.x = startS.x + diffX; s.y = startS.y + diffY;
+                } else if (s.type === 'ARC') {
+                    s.cx = startS.cx + diffX; s.cy = startS.cy + diffY;
+                } else if (s.type === 'ELLIPSE') {
+                    s.cx = startS.cx + diffX; s.cy = startS.cy + diffY;
+                }
+                
+                updatePropertiesPanel();
+            } else if (view.mode === 'MOVE_ALL' && view.dragMovingShapes.length > 0) {
+                view.didMoveShape = true;
+                const totalDx = (e.clientX - view.startClickX) / view.scale;
+                const totalDy = -(e.clientY - view.startClickY) / view.scale;
+                
+                view.dragMovingShapes.forEach(item => {
+                    const s = shapes[item.index];
+                    const startS = item.initialShape;
+                    
+                    // Note: Snap logic for Move All is complex, here we just apply raw diff
+                    // If you want to snap, you should snap the diff itself based on grid, or snap a pivot point
+                    let diffX = totalDx;
+                    let diffY = totalDy;
+                    
+                    if (s.type === 'LINE') {
+                        s.x1 = startS.x1 + diffX; s.y1 = startS.y1 + diffY;
+                        s.x2 = startS.x2 + diffX; s.y2 = startS.y2 + diffY;
+                    } else if (s.type === 'RECT') {
+                        s.x = startS.x + diffX; s.y = startS.y + diffY;
+                    } else if (s.type === 'CIRCLE') {
+                        s.cx = startS.cx + diffX; s.cy = startS.cy + diffY;
+                    } else if (s.type === 'POLYLINE') {
+                        for(let i=0; i<s.vertices.length; i++) {
+                            s.vertices[i].x = startS.vertices[i].x + diffX;
+                            s.vertices[i].y = startS.vertices[i].y + diffY;
+                        }
+                    } else if (s.type === 'TEXT') {
+                        s.x = startS.x + diffX; s.y = startS.y + diffY;
+                    } else if (s.type === 'ARC') {
+                        s.cx = startS.cx + diffX; s.cy = startS.cy + diffY;
+                    } else if (s.type === 'ELLIPSE') {
+                        s.cx = startS.cx + diffX; s.cy = startS.cy + diffY;
+                    }
+                });
+            }
+            view.lastX = e.clientX;
+            view.lastY = e.clientY;
+            draw();
+        }
+    });
+    
+    // Zoom
+    canvas.addEventListener('wheel', e => {
+        e.preventDefault();
+        const scaleFactor = 1.1;
+        const zoomIn = e.deltaY < 0;
+        const oldScale = view.scale;
+        
+        if (zoomIn) view.scale *= scaleFactor;
+        else view.scale /= scaleFactor;
+        
+        // Zoom towards mouse pointer
+        const rect = canvas.getBoundingClientRect();
+        const mx = e.clientX - rect.left;
+        const my = e.clientY - rect.top;
+        
+        const zoomFactor = view.scale / oldScale;
+        view.x = mx - (mx - view.x) * zoomFactor;
+        view.y = my - (my - view.y) * zoomFactor;
+
+        draw();
+    });
+
+    // --- Command Parser ---
+    function executeCommand(str) {
+        if (!str.trim()) return;
+        const parts = str.trim().split(/\s+/);
+        const cmd = parts[0].toUpperCase();
+        const args = parts.slice(1);
+        
+        const activeLayer = getActiveLayer();
+        
+        // Command Handlers
+        if (cmd === 'LINE') {
+            if (args.length < 4) { log('Usage: LINE x1 y1 x2 y2', 'error'); return; }
+            shapes.push({
+                type: 'LINE',
+                x1: parseFloat(args[0]), y1: parseFloat(args[1]),
+                x2: parseFloat(args[2]), y2: parseFloat(args[3]),
+                layer: activeLayer,
+                lineType: 'medium'
+            });
+            log(`Line added.`);
+        } else if (cmd === 'RECT') {
+            if (args.length < 4) { log('Usage: RECT x y w h', 'error'); return; }
+            shapes.push({
+                type: 'RECT',
+                x: parseFloat(args[0]), y: parseFloat(args[1]),
+                w: parseFloat(args[2]), h: parseFloat(args[3]),
+                layer: activeLayer,
+                lineType: 'medium'
+            });
+            log(`Rectangle added.`);
+        } else if (cmd === 'CIRCLE') {
+            if (args.length < 3) { log('Usage: CIRCLE cx cy r', 'error'); return; }
+            shapes.push({
+                type: 'CIRCLE',
+                cx: parseFloat(args[0]), cy: parseFloat(args[1]),
+                r: parseFloat(args[2]),
+                layer: activeLayer,
+                lineType: 'medium'
+            });
+            log(`Circle added.`);
+        } else if (cmd === 'TEXT') {
+             // TEXT x y [size] Content...
+             // Heuristic: If args[2] is a number, treat as size. Else default size 12.
+             let x = parseFloat(args[0]);
+             let y = parseFloat(args[1]);
+             let size = 12;
+             let textStartIdx = 2;
+             
+             if (args.length > 2 && !isNaN(parseFloat(args[2]))) {
+                 size = parseFloat(args[2]);
+                 textStartIdx = 3;
+             }
+             
+             const content = args.slice(textStartIdx).join(' ');
+             if (!content) { log('Usage: TEXT x y [size] content', 'error'); return; }
+
+             shapes.push({
+                 type: 'TEXT',
+                 x: x, y: y, size: size,
+                 text: content,
+                 layer: activeLayer,
+                 color: '#000000'
+             });
+             log('Text added.');
+        } else if (cmd === 'CLEAR') {
+            if (confirm('Clear all shapes?')) {
+                shapes = [];
+                cutAuxiliaryLines = [];
+                selectedShapeIndex = -1;
+                updatePropertiesPanel();
+                log('Canvas cleared.');
+            }
+        } else if (cmd === 'CAP') {
+            // Enter capture mode
+            isCaptureMode = true;
+            captureStart = null;
+            captureCurrent = null;
+            canvas.style.cursor = 'crosshair';
+            log('Capture Mode: Drag to select area.');
+            // Force redraw to update background if needed (though already white in draw)
+            draw();
+            return; // Don't save history for mode change
+        } else if (cmd === 'ZOOM') {
+             // ZOOM scaleH scaleV (e.g. ZOOM 200 200 -> Set viewport to show -100..100)
+             // Simplified: Just center at 0,0 and set scale.
+             if (args.length >= 1) {
+                 const range = parseFloat(args[0]);
+                 // fit 'range' into canvas width
+                 view.scale = canvas.width / range;
+                 view.x = 0;
+                 view.y = 0;
+                 draw();
+                 log(`Zoom set to range ${range}.`);
+             }
+        }
+        // ... (Other commands like ROTATE, MOVE, etc. can be added similarly)
+
+        saveHistory();
+        draw();
+        cmdInput.value = '';
+    }
+
+    btnExec.addEventListener('click', () => executeCommand(cmdInput.value));
+    cmdInput.addEventListener('keydown', e => {
+        if (e.key === 'Enter') executeCommand(cmdInput.value);
+    });
+    
+    // --- DXF Import / Export (Minimal) ---
+    // Using a simple parser/writer logic for demonstration
+    // Note: Full DXF support is complex. This supports LINE, CIRCLE, TEXT (basic).
+    
+    document.getElementById('btn-import').onclick = () => document.getElementById('file-import').click();
+    
+    document.getElementById('file-import').onchange = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (evt) => {
+            const text = evt.target.result;
+            parseDXF(text);
+            document.getElementById('file-import').value = ''; // Reset
+        };
+        reader.readAsText(file);
+    };
+
+    function parseDXF(text) {
+        const lines = text.split(/\r?\n/);
+        let newShapes = [];
+        let currentEntity = null;
+        let x1, y1, x2, y2, r, cx, cy, textContent, h, w;
+        
+        let i = 0;
+        let section = '';
+        
+        // Simple state machine
+        while(i < lines.length) {
+            const code = lines[i].trim();
+            const value = lines[i+1] ? lines[i+1].trim() : '';
+            i += 2;
+            
+            if (code === '0' && value === 'SECTION') continue;
+            if (code === '2' && value === 'ENTITIES') { section = 'ENTITIES'; continue; }
+            if (code === '0' && value === 'ENDSEC') { section = ''; continue; }
+            
+            if (section === 'ENTITIES') {
+                if (code === '0') {
+                    // Save previous entity
+                    if (currentEntity) newShapes.push(currentEntity);
+                    
+                    if (value === 'LINE') currentEntity = { type: 'LINE', layer: 1, lineType: 'medium' };
+                    else if (value === 'CIRCLE') currentEntity = { type: 'CIRCLE', layer: 1, lineType: 'medium' };
+                    else if (value === 'TEXT' || value === 'MTEXT') currentEntity = { type: 'TEXT', layer: 1, color: '#000' };
+                    else currentEntity = null; // Ignore others
+                } else if (currentEntity) {
+                    const valNum = parseFloat(value);
+                    if (currentEntity.type === 'LINE') {
+                        if (code === '10') currentEntity.x1 = valNum;
+                        if (code === '20') currentEntity.y1 = valNum;
+                        if (code === '11') currentEntity.x2 = valNum;
+                        if (code === '21') currentEntity.y2 = valNum;
+                    } else if (currentEntity.type === 'CIRCLE') {
+                        if (code === '10') currentEntity.cx = valNum;
+                        if (code === '20') currentEntity.cy = valNum;
+                        if (code === '40') currentEntity.r = valNum;
+                    } else if (currentEntity.type === 'TEXT') {
+                        if (code === '10') currentEntity.x = valNum;
+                        if (code === '20') currentEntity.y = valNum;
+                        if (code === '40') currentEntity.size = valNum;
+                        if (code === '1') currentEntity.text = value;
+                    }
+                    if (code === '8') currentEntity.layer = 1; // Simplify layer mapping
+                }
+            }
+        }
+        if (currentEntity) newShapes.push(currentEntity); // Push last
+        
+        if (newShapes.length > 0) {
+            shapes = shapes.concat(newShapes);
+            saveHistory();
+            draw();
+            log(`Imported ${newShapes.length} entities.`);
+            
+            // Auto-zoom to fit
+            // (Implementation omitted for brevity, just centers view)
+        } else {
+            log('No supported entities found.', 'error');
+        }
+    }
+
+    document.getElementById('btn-export').onclick = () => {
+        let dxf = "0\nSECTION\n2\nHEADER\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n";
+        
+        shapes.forEach(s => {
+            if (s.type === 'LINE') {
+                dxf += `0\nLINE\n8\n${s.layer||0}\n10\n${s.x1}\n20\n${s.y1}\n11\n${s.x2}\n21\n${s.y2}\n`;
+            } else if (s.type === 'CIRCLE') {
+                dxf += `0\nCIRCLE\n8\n${s.layer||0}\n10\n${s.cx}\n20\n${s.cy}\n40\n${s.r}\n`;
+            } else if (s.type === 'TEXT') {
+                dxf += `0\nTEXT\n8\n${s.layer||0}\n10\n${s.x}\n20\n${s.y}\n40\n${s.size}\n1\n${s.text}\n`;
+            }
+        });
+        
+        dxf += "0\nENDSEC\n0\nEOF\n";
+        
+        const blob = new Blob([dxf], {type: 'application/dxf'});
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = `drawing_${Date.now()}.dxf`;
+        link.click();
+    };
+
+    draw(); // Initial draw
+</script>
+
+</body>
+</html>
